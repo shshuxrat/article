@@ -2,10 +2,10 @@ package main
 
 import (
 	"article/models"
+	"article/storage/postgres"
 	"fmt"
 	"log"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -13,6 +13,7 @@ import (
 )
 
 var db *sqlx.DB
+var articleRepo postgres.ArticleRepoI
 
 func main() {
 
@@ -31,6 +32,8 @@ func main() {
 		log.Panic(err)
 	}
 
+	articleRepo = postgres.NewArticleRepo(db)
+
 	router := gin.Default()
 
 	router.POST("/articles", createArticles)
@@ -45,122 +48,48 @@ func main() {
 func getArticles(c *gin.Context) {
 
 	s := c.Query("search")
-	var resp []models.Article
-	rows, err := db.Query("SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id ")
-
-	if err != nil {
-		log.Panic(err)
-	}
 
 	if s != "" {
-
-		for rows.Next() {
-			var a models.Article
-			err = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
-			if err != nil {
-				log.Panic(err)
-			}
-
-			if a.Author.Firstname == s || a.Author.Lastname == s {
-				resp = append(resp, a)
-			}
-
+		resp, err := articleRepo.Search(models.Query{Offset: 0, Limit: 10, Search: s})
+		if err != nil {
+			log.Println(err)
+			c.JSON(400, err.Error())
+			return
 		}
+		c.JSON(200, resp)
 
 	} else {
 
-		for rows.Next() {
-			var a models.Article
-			err = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
-			resp = append(resp, a)
-			if err != nil {
-				log.Panic(err)
-			}
+		resp, err := articleRepo.GetList(models.Query{Offset: 0, Limit: 10})
+
+		if err != nil {
+			log.Println(err)
+			c.JSON(400, err.Error())
+			return
 		}
 
-	}
-	defer rows.Close()
+		c.JSON(200, resp)
 
-	c.JSON(200, resp)
+	}
+	c.JSON(200, "success")
+
 }
 
 func createArticles(c *gin.Context) {
 	var article models.Article
-	var next_id int
-	var not_found bool = true
+
 	if err := c.BindJSON(&article); err != nil {
 		log.Println(err)
 		c.JSON(422, err.Error())
 		return
 	}
 
-	t := time.Now()
-
-	//there search
-
-	rows, err := db.Query("SELECT a.id, a.firstname, a.lastname FROM author AS a")
-
+	err := articleRepo.Create(article)
 	if err != nil {
-		log.Panic(err)
+		log.Println(err)
+		c.JSON(422, err.Error())
+		return
 	}
-	next_id = 0
-	for rows.Next() {
-		var a models.Article
-
-		err = rows.Scan(&a.ID, &a.Author.Firstname, &a.Author.Lastname)
-		if err != nil {
-			log.Panic(err)
-		}
-
-		if a.Author.Firstname == article.Author.Firstname && a.Author.Lastname == article.Author.Lastname {
-			next_id = a.ID
-			not_found = false
-			break
-		} else {
-			if next_id < a.ID {
-				next_id = a.ID
-			}
-		}
-
-	}
-
-	//end search
-
-	if not_found {
-		resp2, err2 := db.NamedExec(
-			`INSERT INTO author(id,firstname,lastname,created_at) VALUES (:i,:fn,:ln,:t_at)`,
-			map[string]interface{}{
-				"i":    next_id,
-				"fn":   article.Author.Firstname,
-				"ln":   article.Author.Lastname,
-				"t_at": t,
-			},
-		)
-
-		if err2 != nil {
-			log.Panic(err2)
-		}
-
-		fmt.Printf("%#v\n", resp2)
-
-	}
-	t = time.Now()
-
-	resp, err5 := db.NamedExec(
-		`INSERT INTO article (title, body,author_id,created_at) VALUES (:t,:b, :a_id,:t_at)`,
-		map[string]interface{}{
-			"t":    article.Title,
-			"b":    article.Body,
-			"a_id": next_id,
-			"t_at": t,
-		},
-	)
-	next_id++
-	if err5 != nil {
-		log.Panic(err5)
-	}
-
-	fmt.Printf("%#v\n", resp)
 
 	c.JSON(201, "success")
 
