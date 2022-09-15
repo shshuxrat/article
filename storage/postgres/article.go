@@ -12,8 +12,8 @@ type ArticleRepoI interface {
 	GetList(query models.Query) ([]models.Article, error)
 	GetByID(Id int) (models.Article, error)
 	Search(query models.Query) ([]models.Article, error)
-	Update(entity models.Article) error
-	Delete(ID int) error
+	Update(entity models.Article) (int64, error)
+	Delete(ID int) (int64, error)
 }
 
 type articleRepo struct {
@@ -113,11 +113,13 @@ func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 		return resp, err
 	}
 	for rows.Next() {
+
 		var a models.Article
 
 		err = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
 
 		resp = append(resp, a)
+
 		if err != nil {
 			return resp, err
 		}
@@ -128,9 +130,24 @@ func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 }
 
 func (r articleRepo) GetByID(Id int) (article models.Article, err error) {
+	var a models.Article
+	rows, errId := r.db.NamedQuery(
+		`SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id  WHERE article.id = :fn`,
+		map[string]interface{}{"fn": Id},
+	)
 
-	return
+	if errId != nil {
+		return a, errId
+	}
 
+	rows.Next()
+	errId = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
+
+	if errId != nil {
+		return a, errId
+	}
+
+	return a, nil
 }
 
 func (r articleRepo) Search(query models.Query) ([]models.Article, error) {
@@ -159,18 +176,54 @@ func (r articleRepo) Search(query models.Query) ([]models.Article, error) {
 		}
 	}
 
-	return resp, err
+	return resp, nil
 
 }
 
-func (r articleRepo) Update(entity models.Article) error {
+func (r articleRepo) Update(entity models.Article) (int64, error) {
 
-	return nil
+	resp, err2 := r.db.Exec(
+		"UPDATE article SET title=$1 , body=$2, updated_at=now() where id=$3",
+		entity.Title,
+		entity.Body,
+		entity.ID,
+	)
+
+	if err2 != nil {
+
+		return 0, err2
+	}
+
+	affect, err := resp.RowsAffected()
+
+	if err != nil {
+
+		return 0, err
+	}
+
+	return affect, nil
 
 }
 
-func (r articleRepo) Delete(Id int) error {
+func (r articleRepo) Delete(Id int) (int64, error) {
 
-	return nil
+	resp, err := r.db.Exec(
+		`DELETE FROM article WHERE id = $1;`,
+		Id,
+	)
+
+	if err != nil {
+
+		return 0, err
+	}
+
+	affect, err := resp.RowsAffected()
+
+	if err != nil {
+
+		return 0, err
+	}
+
+	return affect, nil
 
 }

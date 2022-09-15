@@ -60,7 +60,7 @@ func getArticles(c *gin.Context) {
 
 	} else {
 
-		resp, err := articleRepo.GetList(models.Query{Offset: 0, Limit: 10})
+		resp, err := articleRepo.GetList(models.Query{Offset: 0, Limit: 10, Search: ""})
 
 		if err != nil {
 			log.Println(err)
@@ -71,7 +71,6 @@ func getArticles(c *gin.Context) {
 		c.JSON(200, resp)
 
 	}
-	c.JSON(200, "success")
 
 }
 
@@ -108,23 +107,12 @@ func getArticlesById(c *gin.Context) {
 			return
 		}
 
-		var a models.Article
-		rows, errId := db.NamedQuery(
-			`SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id  WHERE article.id = :fn`,
-			map[string]interface{}{"fn": id},
-		)
+		a, err := articleRepo.GetByID(id)
 
-		if errId != nil {
-			log.Println(errId)
-			c.JSON(500, errId.Error())
-
-		}
-		rows.Next()
-		errId = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
-		if errId != nil {
-			log.Println(errId)
-			c.JSON(500, errId.Error())
-
+		if err != nil {
+			log.Println(err)
+			c.JSON(404, err.Error())
+			return
 		}
 
 		c.JSON(200, a)
@@ -141,19 +129,13 @@ func updateArticle(c *gin.Context) {
 		return
 	}
 
-	_, err2 := db.Exec(
-		"UPDATE article SET title=$1 , body=$2, updated_at=now() where id=$3",
-		article.Title,
-		article.Body,
-		article.ID,
-	)
-
-	if err2 != nil {
-		log.Panic(err2)
-		c.JSON(404, "not found")
-		return
+	afferctedRaw, err := articleRepo.Update(article)
+	if err != nil {
+		log.Println(err)
+		c.JSON(422, err.Error)
 	}
 
+	log.Println("affected rows : ", afferctedRaw)
 	c.JSON(201, "success")
 
 }
@@ -165,15 +147,13 @@ func deleteArticle(c *gin.Context) {
 		c.JSON(422, err.Error())
 		return
 	}
-
-	_, errdel := db.Exec(
-		`DELETE FROM article WHERE id = $1;`,
-		id,
-	)
-
-	if errdel != nil {
-		log.Println(errdel)
-		c.JSON(404, errdel.Error())
+	afferctedRaw, err := articleRepo.Delete(id)
+	if err != nil {
+		log.Println(err)
+		c.JSON(422, err.Error)
 	}
+
+	log.Println("affected rows : ", afferctedRaw)
+
 	c.JSON(200, "deleted")
 }
