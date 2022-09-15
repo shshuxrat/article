@@ -2,6 +2,7 @@ package main
 
 import (
 	"article/models"
+	"article/storage"
 	"article/storage/postgres"
 	"fmt"
 	"log"
@@ -13,7 +14,7 @@ import (
 )
 
 var db *sqlx.DB
-var articleRepo postgres.ArticleRepoI
+var articleRepo storage.ArticleRepoI
 
 func main() {
 
@@ -49,8 +50,22 @@ func getArticles(c *gin.Context) {
 
 	s := c.Query("search")
 
+	offsetStr := c.DefaultQuery("offset", "0")
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		log.Println(err)
+		c.JSON(400, err.Error())
+	}
+
+	limitStr := c.DefaultQuery("limit", "10")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		log.Println(err)
+		c.JSON(400, err.Error())
+	}
+
 	if s != "" {
-		resp, err := articleRepo.Search(models.Query{Offset: 0, Limit: 10, Search: s})
+		resp, err := articleRepo.Search(models.Query{Offset: offset, Limit: limit, Search: s})
 		if err != nil {
 			log.Println(err)
 			c.JSON(400, err.Error())
@@ -60,7 +75,7 @@ func getArticles(c *gin.Context) {
 
 	} else {
 
-		resp, err := articleRepo.GetList(models.Query{Offset: 0, Limit: 10, Search: ""})
+		resp, err := articleRepo.GetList(models.Query{Offset: offset, Limit: limit})
 
 		if err != nil {
 			log.Println(err)
