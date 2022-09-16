@@ -17,7 +17,6 @@ type Store struct {
 func NewPostgresRepo(psqlConnString string) storage.StorageI {
 
 	db, err := sqlx.Connect("postgres", psqlConnString)
-
 	if err != nil {
 		log.Panic(err)
 	}
