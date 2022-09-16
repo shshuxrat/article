@@ -1,7 +1,7 @@
 package models
 
 type Query struct {
-	Offset int    `json:"offset" default:"0"`
-	Limit  int    `json:"limit" default:"10"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
 	Search string `json:"search"`
 }

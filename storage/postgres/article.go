@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"article/models"
-	"time"
+	"database/sql"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -17,111 +17,68 @@ func NewArticleRepo(db *sqlx.DB) articleRepo {
 	}
 }
 
-func (r articleRepo) Create(entity models.Article) (int64, error) {
-	var err error
-	var not_found bool = true
-	t := time.Now()
-
-	//there search  author if exists or not
-	rows, err := r.db.Query("SELECT a.id  FROM author AS a")
+func (r articleRepo) Create(entity models.ArticleCreateModel) (int64, error) {
+	resp, err := r.db.NamedExec(
+		`INSERT INTO article (title, body, author_id) VALUES (:t,:b, :a_id)`,
+		map[string]interface{}{
+			"t":    entity.Title,
+			"b":    entity.Body,
+			"a_id": entity.AuthorID,
+		},
+	)
 
 	if err != nil {
 		return 0, err
 	}
 
-	for rows.Next() {
-		var a int
-		err = rows.Scan(&a)
-		if err != nil {
-			return 0, err
-		}
-		if a == entity.Author.Id {
-			not_found = false // there we found person already created
-			break
-		}
-	}
-	defer rows.Close()
-	//end search
+	affect, err := resp.RowsAffected()
 
-	if not_found {
-		_, err2 := r.db.NamedExec(
-			`INSERT INTO author(id,firstname,lastname,created_at) VALUES (:i,:fn,:ln,:t_at)`,
-			map[string]interface{}{
-				"i":    entity.Author.Id,
-				"fn":   entity.Author.Firstname,
-				"ln":   entity.Author.Lastname,
-				"t_at": t,
-			},
-		)
-
-		if err2 != nil {
-			return 0, err2
-		}
-
-	}
-	t = time.Now()
-	//there search  article if exists or not
-	rows, err = r.db.Query("SELECT a.id FROM article AS a")
-	not_found = true
 	if err != nil {
 		return 0, err
 	}
-
-	for rows.Next() {
-		var a int
-		err = rows.Scan(&a)
-		if err != nil {
-			return 0, err
-		}
-		if a == entity.ID {
-			not_found = false // there we found person already created
-			break
-		}
-	}
-	defer rows.Close()
-	//end search
-
-	if not_found {
-		resp, err5 := r.db.NamedExec(
-			`INSERT INTO article (title, body,author_id,created_at) VALUES (:t,:b, :a_id,:t_at)`,
-			map[string]interface{}{
-				"t":    entity.Title,
-				"b":    entity.Body,
-				"a_id": entity.Author.Id,
-				"t_at": t,
-			},
-		)
-
-		if err5 != nil {
-			return 0, err5
-		}
-
-		affect, err := resp.RowsAffected()
-
-		if err != nil {
-			return 0, err
-		}
-		return affect, nil
-	}
-
-	return 0, nil
+	return affect, nil
 
 }
 
 func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 	var resp []models.Article
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.Query(
-		`SELECT  article.id , article.title, article.body, article.created_at, author.id, author.firstname, author.lastname 
-		FROM article JOIN author ON article.author_id = author.id  
-		OFFSET $1 LIMIT $2`,
-		query.Offset,
-		query.Limit,
-	)
+	if len(query.Search) > 0 {
+		rows, err = r.db.Query(
+			`SELECT  ar.id , ar.title, ar.body, ar.created_at, au.id, au.firstname, au.lastname 
+			FROM article AS ar JOIN author  AS au
+			ON ar.author_id = au.id 
+			WHERE ar.title ILIKE '%' || $3 || '%' 
+			OFFSET $1 LIMIT $2`,
+			query.Offset,
+			query.Limit,
+			query.Search,
+		)
+		if err != nil {
+			return resp, err
+		}
 
-	if err != nil {
-		return resp, err
+	} else {
+
+		rows, err = r.db.Query(
+			`SELECT  ar.id , ar.title, ar.body, ar.created_at, au.id, au.firstname, au.lastname 
+			FROM article AS ar JOIN author  AS au
+			ON ar.author_id = au.id 
+			WHERE ar.title ILIKE '%' || $3 || '%' 
+			OFFSET $1 LIMIT $2`,
+			query.Offset,
+			query.Limit,
+			query.Search,
+		)
+
+		if err != nil {
+			return resp, err
+		}
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 
 		var a models.Article
@@ -163,46 +120,14 @@ func (r articleRepo) GetByID(Id int) (article models.Article, err error) {
 	return a, nil
 }
 
-func (r articleRepo) Search(query models.Query) ([]models.Article, error) {
-
-	var resp []models.Article
-	rows, err := r.db.Query(
-		`SELECT  ar.id , ar.title, ar.body, ar.created_at, au.id, au.firstname, au.lastname 
-		FROM article AS ar
-		JOIN author AS au ON ar.author_id = au.id  
-		OFFSET $1 LIMIT $2`,
-		query.Offset,
-		query.Limit,
-	)
-
-	if err != nil {
-		return resp, err
-	}
-	for rows.Next() {
-		var a models.Article
-
-		err1 := rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Id, &a.Author.Firstname, &a.Author.Lastname)
-
-		if err1 != nil {
-			return resp, err
-		}
-
-		if a.Author.Firstname == query.Search || a.Author.Lastname == query.Search {
-			resp = append(resp, a)
-		}
-	}
-
-	return resp, nil
-
-}
-
-func (r articleRepo) Update(entity models.Article) (int64, error) {
+func (r articleRepo) Update(entity models.ArticleUpdateModel) (int64, error) {
 
 	resp, err2 := r.db.Exec(
-		"UPDATE article SET title=$1 , body=$2, updated_at=now() where id=$3",
+		"UPDATE article SET title=$1 , body=$2, author_id=$4 ,updated_at=now() where id=$3",
 		entity.Title,
 		entity.Body,
 		entity.ID,
+		entity.AuthorID,
 	)
 
 	if err2 != nil {

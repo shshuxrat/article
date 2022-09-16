@@ -10,49 +10,30 @@ import (
 
 func (h *Handler) GetArticles(c *gin.Context) {
 
-	s := c.Query("search")
-
-	offsetStr := c.DefaultQuery("offset", "0")
-	offset, err := strconv.Atoi(offsetStr)
+	offset, err := h.getOffsetParam(c)
 	if err != nil {
 		log.Println(err)
 		c.JSON(400, err.Error())
 	}
 
-	limitStr := c.DefaultQuery("limit", "10")
-	limit, err := strconv.Atoi(limitStr)
+	limit, err := h.getLimitParam(c)
 	if err != nil {
 		log.Println(err)
 		c.JSON(400, err.Error())
 	}
 
-	if s != "" {
-		resp, err := h.strg.Article().Search(models.Query{Offset: offset, Limit: limit, Search: s})
-		if err != nil {
-			log.Println(err)
-			c.JSON(400, err.Error())
-			return
-		}
-		c.JSON(200, resp)
-
-	} else {
-
-		resp, err := h.strg.Article().GetList(models.Query{Offset: offset, Limit: limit})
-
-		if err != nil {
-			log.Println(err)
-			c.JSON(400, err.Error())
-			return
-		}
-
-		c.JSON(200, resp)
-
+	resp, err := h.strg.Article().GetList(models.Query{Offset: offset, Limit: limit, Search: c.Query("search")})
+	if err != nil {
+		log.Println(err)
+		c.JSON(400, err.Error())
+		return
 	}
+	c.JSON(200, resp)
 
 }
 
 func (h *Handler) CreateArticle(c *gin.Context) {
-	var article models.Article
+	var article models.ArticleCreateModel
 
 	if err := c.BindJSON(&article); err != nil {
 		log.Println(err)
@@ -105,7 +86,7 @@ func (h *Handler) GetArticlesById(c *gin.Context) {
 }
 
 func (h *Handler) UpdateArticle(c *gin.Context) {
-	var article models.Article
+	var article models.ArticleUpdateModel
 	if err := c.BindJSON(&article); err != nil {
 		log.Println(err)
 		c.JSON(422, err.Error())
@@ -116,6 +97,7 @@ func (h *Handler) UpdateArticle(c *gin.Context) {
 	if err != nil {
 		log.Println(err)
 		c.JSON(422, err.Error)
+		return
 	}
 
 	log.Println("affected rows : ", afferctedRaw)

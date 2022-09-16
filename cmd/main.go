@@ -24,7 +24,7 @@ func main() {
 		),
 	)
 
-	h := handlers.NewHandler(pgStore)
+	h := handlers.NewHandler(pgStore, cfg)
 
 	switch cfg.Environment {
 	case "dev":

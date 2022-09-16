@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"article/models"
-	"time"
+	"database/sql"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -17,79 +17,68 @@ func NewAuthorRepo(db *sqlx.DB) authorRepo {
 	}
 }
 
-func (a authorRepo) Create(entity models.Person) (int64, error) {
-	var err error
-	var not_found bool = true
-	t := time.Now()
+func (a authorRepo) Create(entity models.PersonCreateModel) (int64, error) {
 
-	//there search  author if exists or not
-	rows, err := a.db.Query("SELECT a.id  FROM author AS a")
+	resp, err2 := a.db.NamedExec(
+		`INSERT INTO author(firstname,lastname) 
+		VALUES (:fn,:ln)`,
+		map[string]interface{}{
+			"fn": entity.Firstname,
+			"ln": entity.Lastname,
+		},
+	)
+
+	if err2 != nil {
+		return 0, err2
+	}
+
+	affect, err := resp.RowsAffected()
 
 	if err != nil {
 		return 0, err
 	}
 
-	for rows.Next() {
-		var a int
-		err = rows.Scan(&a)
-		if err != nil {
-			return 0, err
-		}
-		if a == entity.Id {
-			not_found = false // there we found person already created
-			break
-		}
-	}
-	//end search
-
-	if not_found {
-		resp, err2 := a.db.NamedExec(
-			`INSERT INTO author(id,firstname,lastname,created_at) VALUES (:i,:fn,:ln,:t_at)`,
-			map[string]interface{}{
-				"i":    entity.Id,
-				"fn":   entity.Firstname,
-				"ln":   entity.Lastname,
-				"t_at": t,
-			},
-		)
-
-		if err2 != nil {
-			return 0, err2
-		}
-
-		affect, err := resp.RowsAffected()
-
-		if err != nil {
-			return 0, err
-		}
-
-		return affect, nil
-	}
-
-	return 0, nil
+	return affect, nil
 }
 
 func (a authorRepo) GetList(query models.Query) ([]models.Person, error) {
 	var arr []models.Person
-	rows, err := a.db.Query(
-		`SELECT  a.Id, a.firstname, a.lastname
-		FROM author AS a  
-		OFFSET $1 LIMIT $2`,
-		query.Offset,
-		query.Limit,
-	)
-	if err != nil {
-		return arr, err
-	}
-
-	for rows.Next() {
-		var p models.Person
-
-		err = rows.Scan(&p.Id, &p.Firstname, &p.Lastname)
+	var rows *sql.Rows
+	var err error
+	if len(query.Search) > 0 {
+		rows, err = a.db.Query(
+			`SELECT  a.Id, a.firstname, a.lastname
+			FROM author AS a
+			WHERE a.firstname ILIKE '%' || $3 || '%' OR a.lastname ILIKE '%' || $3 || '%'
+			OFFSET $1 LIMIT $2`,
+			query.Offset,
+			query.Limit,
+			query.Search,
+		)
 		if err != nil {
 			return arr, err
 		}
 
+	} else {
+		rows, err = a.db.Query(
+			`SELECT  a.Id, a.firstname, a.lastname
+			FROM author AS a
+			OFFSET $1 LIMIT $2`,
+			query.Offset,
+			query.Limit,
+		)
+		if err != nil {
+			return arr, err
+		}
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var p models.Person
+		err = rows.Scan(&p.Id, &p.Firstname, &p.Lastname)
+		if err != nil {
+			return arr, err
+		}
 		arr = append(arr, p)
 	}
 
@@ -118,43 +107,14 @@ func (a authorRepo) GetByID(Id int) (models.Person, error) {
 
 	return p, nil
 }
-func (a authorRepo) Search(query models.Query) ([]models.Person, error) {
-	var arr []models.Person
 
-	rows, err := a.db.Query(
-		`SELECT  a.Id , a.firstname, a.lastname 
-		FROM author AS a
-		OFFSET $1 LIMIT $2`,
-		query.Offset,
-		query.Limit,
-	)
-
-	if err != nil {
-		return arr, err
-	}
-	for rows.Next() {
-		var a models.Person
-
-		err = rows.Scan(&a.Id, &a.Firstname, &a.Lastname)
-
-		if err != nil {
-			return arr, err
-		}
-
-		if a.Firstname == query.Search || a.Lastname == query.Search {
-			arr = append(arr, a)
-		}
-	}
-
-	return arr, nil
-}
-func (a authorRepo) Update(entity models.Person) (int64, error) {
+func (a authorRepo) Update(entity models.PersonUpdateModel) (int64, error) {
 
 	resp, err2 := a.db.Exec(
 		"UPDATE author SET firstname=$1 , lastname=$2, updated_at=now() where id=$3",
 		entity.Firstname,
 		entity.Lastname,
-		entity.Id,
+		entity.ID,
 	)
 
 	if err2 != nil {

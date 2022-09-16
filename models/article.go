@@ -13,3 +13,14 @@ type Article struct {
 	Author    Person     `json:"p"` // Nested structs
 	CreatedAt *time.Time `json:"created_at"`
 }
+
+type ArticleCreateModel struct {
+	Content      // Promoted fields
+	AuthorID int `json:"author_id"`
+}
+
+type ArticleUpdateModel struct {
+	ID       int `json:"id"`
+	Content      // Promoted fields
+	AuthorID int `json:"author_id"`
+}
