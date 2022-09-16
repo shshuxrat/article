@@ -17,49 +17,37 @@ func NewArticleRepo(db *sqlx.DB) articleRepo {
 	}
 }
 
-func (r articleRepo) Create(entity models.Article) error {
+func (r articleRepo) Create(entity models.Article) (int64, error) {
 	var err error
-	var next_id int
 	var not_found bool = true
 	t := time.Now()
 
-	//there search person if exists or not if person exists next_id = person.id else next_id = max of all ids
-
-	rows, err := r.db.Query("SELECT a.id, a.firstname, a.lastname FROM author AS a")
+	//there search  author if exists or not
+	rows, err := r.db.Query("SELECT a.id  FROM author AS a")
 
 	if err != nil {
-		return err
+		return 0, err
 	}
-	next_id = 0
+
 	for rows.Next() {
-		var a models.Article
-
-		err = rows.Scan(&a.ID, &a.Author.Firstname, &a.Author.Lastname)
+		var a int
+		err = rows.Scan(&a)
 		if err != nil {
-			return err
+			return 0, err
 		}
-
-		if a.Author.Firstname == entity.Author.Firstname && a.Author.Lastname == entity.Author.Lastname {
-			next_id = a.ID
+		if a == entity.Author.Id {
 			not_found = false // there we found person already created
 			break
-		} else {
-			if next_id < a.ID {
-				next_id = a.ID
-
-			}
 		}
-
 	}
-
+	defer rows.Close()
 	//end search
 
 	if not_found {
-		next_id++
 		_, err2 := r.db.NamedExec(
 			`INSERT INTO author(id,firstname,lastname,created_at) VALUES (:i,:fn,:ln,:t_at)`,
 			map[string]interface{}{
-				"i":    next_id,
+				"i":    entity.Author.Id,
 				"fn":   entity.Author.Firstname,
 				"ln":   entity.Author.Lastname,
 				"t_at": t,
@@ -67,27 +55,56 @@ func (r articleRepo) Create(entity models.Article) error {
 		)
 
 		if err2 != nil {
-			return err2
+			return 0, err2
 		}
 
 	}
 	t = time.Now()
-
-	_, err5 := r.db.NamedExec(
-		`INSERT INTO article (title, body,author_id,created_at) VALUES (:t,:b, :a_id,:t_at)`,
-		map[string]interface{}{
-			"t":    entity.Title,
-			"b":    entity.Body,
-			"a_id": next_id,
-			"t_at": t,
-		},
-	)
-
-	if err5 != nil {
-		return err5
+	//there search  article if exists or not
+	rows, err = r.db.Query("SELECT a.id FROM article AS a")
+	not_found = true
+	if err != nil {
+		return 0, err
 	}
 
-	return nil
+	for rows.Next() {
+		var a int
+		err = rows.Scan(&a)
+		if err != nil {
+			return 0, err
+		}
+		if a == entity.ID {
+			not_found = false // there we found person already created
+			break
+		}
+	}
+	defer rows.Close()
+	//end search
+
+	if not_found {
+		resp, err5 := r.db.NamedExec(
+			`INSERT INTO article (title, body,author_id,created_at) VALUES (:t,:b, :a_id,:t_at)`,
+			map[string]interface{}{
+				"t":    entity.Title,
+				"b":    entity.Body,
+				"a_id": entity.Author.Id,
+				"t_at": t,
+			},
+		)
+
+		if err5 != nil {
+			return 0, err5
+		}
+
+		affect, err := resp.RowsAffected()
+
+		if err != nil {
+			return 0, err
+		}
+		return affect, nil
+	}
+
+	return 0, nil
 
 }
 
@@ -95,7 +112,9 @@ func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 	var resp []models.Article
 
 	rows, err := r.db.Query(
-		"SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id  OFFSET $1 LIMIT $2",
+		`SELECT  article.id , article.title, article.body, article.created_at, author.id, author.firstname, author.lastname 
+		FROM article JOIN author ON article.author_id = author.id  
+		OFFSET $1 LIMIT $2`,
 		query.Offset,
 		query.Limit,
 	)
@@ -107,7 +126,7 @@ func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 
 		var a models.Article
 
-		err = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
+		err = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Id, &a.Author.Firstname, &a.Author.Lastname)
 
 		resp = append(resp, a)
 
@@ -123,7 +142,10 @@ func (r articleRepo) GetList(query models.Query) ([]models.Article, error) {
 func (r articleRepo) GetByID(Id int) (article models.Article, err error) {
 	var a models.Article
 	rows, errId := r.db.NamedQuery(
-		`SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id  WHERE article.id = :fn`,
+		`SELECT  ar.id , ar.title, ar.body, ar.created_at, au.id, au.firstname, au.lastname 
+		FROM article AS ar
+		JOIN author AS au ON ar.author_id = au.id  
+		WHERE ar.id = :fn`,
 		map[string]interface{}{"fn": Id},
 	)
 
@@ -132,7 +154,7 @@ func (r articleRepo) GetByID(Id int) (article models.Article, err error) {
 	}
 
 	rows.Next()
-	errId = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
+	errId = rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Id, &a.Author.Firstname, &a.Author.Lastname)
 
 	if errId != nil {
 		return a, errId
@@ -145,7 +167,10 @@ func (r articleRepo) Search(query models.Query) ([]models.Article, error) {
 
 	var resp []models.Article
 	rows, err := r.db.Query(
-		"SELECT  article.id , article.title, article.body, article.created_at, author.firstname, author.lastname FROM article JOIN author ON article.author_id = author.id  OFFSET $1 LIMIT $2",
+		`SELECT  ar.id , ar.title, ar.body, ar.created_at, au.id, au.firstname, au.lastname 
+		FROM article AS ar
+		JOIN author AS au ON ar.author_id = au.id  
+		OFFSET $1 LIMIT $2`,
 		query.Offset,
 		query.Limit,
 	)
@@ -156,7 +181,7 @@ func (r articleRepo) Search(query models.Query) ([]models.Article, error) {
 	for rows.Next() {
 		var a models.Article
 
-		err1 := rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Firstname, &a.Author.Lastname)
+		err1 := rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedAt, &a.Author.Id, &a.Author.Firstname, &a.Author.Lastname)
 
 		if err1 != nil {
 			return resp, err
